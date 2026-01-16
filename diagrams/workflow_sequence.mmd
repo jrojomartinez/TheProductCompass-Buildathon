@@ -1,0 +1,45 @@
+```mermaid
+sequenceDiagram
+    participant User
+    participant N8N as n8n Orchestrator
+    participant Scout as Scout Agent
+    participant Matcher as Matcher Agent
+    participant Composer as Composer Agent
+    participant Tracker as Tracker Agent
+    participant DB as PostgreSQL
+
+    Note over N8N: Daily Cron: 9am
+    N8N->>Scout: Trigger job discovery
+    Scout->>Scout: Fetch HN + AngelList
+    Scout->>Scout: Parse & normalize
+    Scout->>Scout: Validate & deduplicate
+    Scout->>DB: Insert 47 new jobs
+    Scout->>N8N: Webhook: "Scout complete"
+
+    N8N->>Matcher: Trigger scoring
+    Matcher->>DB: Load user profile
+    Matcher->>DB: Load new jobs
+    loop For each job
+        Matcher->>Matcher: Calculate match score (0-100)
+        Matcher->>Matcher: Generate explanation
+        Matcher->>DB: Insert match record
+    end
+    Matcher->>N8N: Webhook: "12 high matches (≥80)"
+    N8N->>User: Notification: "New matches available"
+
+    User->>N8N: Click "Generate Documents" for Job X
+    N8N->>Composer: Trigger document generation
+    Composer->>DB: Load user profile + job details
+    Composer->>Composer: Generate CV summary
+    Composer->>Composer: Generate cover letter
+    Composer->>Composer: Fact-check validation
+    Composer->>DB: Save drafts
+    Composer->>N8N: Webhook: "Documents ready"
+    N8N->>User: Notification: "Review documents"
+
+    User->>Tracker: View documents
+    User->>Tracker: Approve documents
+    Tracker->>DB: Update status: "documents_ready" → "applied"
+    Tracker->>DB: Set follow-up reminder (7 days)
+    Tracker->>User: Update dashboard
+```

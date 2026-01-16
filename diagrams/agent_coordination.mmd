@@ -1,0 +1,47 @@
+```mermaid
+graph TB
+    subgraph Orchestration[n8n Orchestration Layer]
+        TRIG[Event Triggers<br/>- Schedule: Daily 9am<br/>- Webhook: Agent completion<br/>- User Action: Approve/Generate]
+        COORD[Coordinator Logic<br/>- State transitions<br/>- Agent handoffs<br/>- Error handling]
+        NOTIF[Notifications<br/>- Dashboard updates<br/>- High-priority alerts]
+    end
+
+    subgraph Agents[Specialized AI Agents]
+        direction LR
+        S[Scout Agent<br/>─────────<br/>🔍 Discovery<br/>HN + AngelList<br/>Normalize & Store]
+        M[Matcher Agent<br/>─────────<br/>🎯 Scoring<br/>Profile Analysis<br/>Rank by Fit]
+        C[Composer Agent<br/>─────────<br/>✍️ Generation<br/>CV + Cover Letter<br/>LLM-powered]
+        T[Tracker Agent<br/>─────────<br/>📊 Pipeline<br/>Status Management<br/>CRUD Operations]
+    end
+
+    DB[(PostgreSQL<br/>Shared State Layer<br/>─────────<br/>users<br/>jobs<br/>matches<br/>applications)]
+
+    USER[User Dashboard<br/>─────────<br/>Profile Setup<br/>Job Review<br/>Document Approval<br/>Tracking]
+
+    TRIG --> S
+    S -->|47 new jobs| COORD
+    COORD --> M
+    M -->|12 high matches| COORD
+    COORD --> NOTIF
+    NOTIF --> USER
+    USER -->|Approve| COORD
+    COORD --> C
+    C -->|Drafts ready| COORD
+    COORD --> T
+    T --> USER
+
+    S <--> DB
+    M <--> DB
+    C <--> DB
+    T <--> DB
+
+    style S fill:#50C878,stroke:#2E7D4E,color:#fff
+    style M fill:#FFB347,stroke:#CC8A3A,color:#fff
+    style C fill:#FF6B6B,stroke:#CC5555,color:#fff
+    style T fill:#9B59B6,stroke:#7D4A93,color:#fff
+    style DB fill:#34495E,stroke:#2C3E50,color:#fff
+    style COORD fill:#4A90E2,stroke:#2E5C8A,color:#fff
+
+    classDef orchestration fill:#E8F4F8,stroke:#4A90E2,stroke-width:3px
+    class Orchestration orchestration
+```

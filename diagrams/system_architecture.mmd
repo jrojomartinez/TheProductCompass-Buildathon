@@ -1,0 +1,41 @@
+```mermaid
+graph TB
+    User[User Dashboard<br/>Lovable Frontend]
+
+    subgraph Backend[FastAPI Backend + n8n Orchestrator]
+        N8N[n8n Coordinator<br/>Event-driven workflows]
+        Scout[Scout Agent<br/>Job Discovery]
+        Matcher[Matcher Agent<br/>Scoring & Ranking]
+        Composer[Composer Agent<br/>Document Generation]
+        Tracker[Tracker Agent<br/>Pipeline Management]
+    end
+
+    DB[(PostgreSQL<br/>Shared State<br/>users | jobs | matches | applications)]
+
+    HN[HackerNews API]
+    AL[AngelList]
+    LLM[OpenAI/Anthropic API]
+
+    User -->|REST API| N8N
+    N8N -->|Schedule trigger| Scout
+    Scout -->|Webhook: new jobs| Matcher
+    Matcher -->|User approval| Composer
+    Composer -->|Documents ready| Tracker
+    Tracker -->|Status updates| User
+
+    Scout <-->|Read/Write| DB
+    Matcher <-->|Read/Write| DB
+    Composer <-->|Read/Write| DB
+    Tracker <-->|Read/Write| DB
+
+    Scout -->|Scrape| HN
+    Scout -->|Scrape| AL
+    Composer -->|Generate| LLM
+
+    style N8N fill:#4A90E2,stroke:#2E5C8A,color:#fff
+    style Scout fill:#50C878,stroke:#2E7D4E,color:#fff
+    style Matcher fill:#FFB347,stroke:#CC8A3A,color:#fff
+    style Composer fill:#FF6B6B,stroke:#CC5555,color:#fff
+    style Tracker fill:#9B59B6,stroke:#7D4A93,color:#fff
+    style DB fill:#34495E,stroke:#2C3E50,color:#fff
+```
