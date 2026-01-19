@@ -8,7 +8,7 @@ Job seekers face a time-quality tradeoff: either spend 30-45 minutes tailoring e
 
 ##### Agent Purpose
 
-Composer Agent generates job-specific, ATS-optimized CV and Cover Letters that maintain 100% factuality while achieving 80%+ relevance match to the target job description, saving precious time to the job hunters while increasing chances of interviews.
+Composer Agent generates job-specific, ATS-optimized CV and Cover Letters that maintain 100% factuality while achieving 85%+ relevance match to the target job description, saving precious time to the job hunters while increasing chances of interviews.
 
 ##### Agent Identity:
 
@@ -48,8 +48,8 @@ High Level User Workflow:
 
 **Quality Outcomes**
 
-- Factuality: 100% claims supported by user profile (0% fabrication)  
-- Relevance: ≥80% match score (CV/Cover Letter aligned to job description)  
+- Factuality: 100% claims supported by user profile (0% fabrication)
+- Relevance: ≥85% match score (CV/Cover Letter aligned to job description)  
 - ATS Optimization: Key skills and requirements from job description naturally integrated  
 - Usability: ≤5 minutes of user editing required  
 - Voice alignment: "Sounds like me" feedback \>90%
@@ -66,7 +66,7 @@ High Level User Workflow:
 
 - **Factuality Score**: 100% claims supported by user profile.  
   - Measured via: Automated fact-checking against profile data.  
-- **Match Score**: ≥80% CV/Cover Letter relevance to job description.  
+- **Match Score**: ≥85% CV/Cover Letter relevance to job description.  
   - Measured via: LLM-as-judge (simulating ATS scoring).  
   - Evaluation: Via both, a test set (offline) and live generation (online monitoring).  
 - **Voice Authenticity**: \<10% "doesn't sound like me" reports (after first 3 applications)  
@@ -100,193 +100,195 @@ High Level User Workflow:
 
 **Upstream Dependencies** (what Composer receives):
 
-- **From Matcher Agent** (automatic trigger):  
-  - New high-quality match found (score ≥80)  
-  - Match score (0-100)  
-  - Match explanation (why job fits user)  
-  - Skills gap analysis (matched vs. missing skills)  
-  - Job description (company, title, location, full description, salary)  
-- **From Database**:  
-  - User profile (structured format with parsed experience, achievements, skills)  
-  - **Baseline CV**: Original CV stored during onboarding (parsed into structured format, constant reference)  
-  - Previous draft iterations for this specific job (if user requested regeneration), with:  
-    - Draft CV / Cover Letter  
-    - Factuality score  
-    - Match score of CV / Cover Letter \- Job  
-    - Reasons from the user for edit / regeneration (to better adapt in next iteration)  
-- **From AdapterAgent** (cross-job learning):  
-  - User style profile (tone, formality)  
-  - Document generation preferences learned from past edits  
-    - Past edits and reasons for the edits
+- **From Orchestrator** (automatic trigger via webhook):
+  - Webhook payload: `{application_id, user_id, callback_url}`
+  - Orchestrator monitors for new high-quality matches (fit_band = "High", score ≥85)
+  - For each new match, Orchestrator triggers Composer with application and user identifiers
+  - Composer retrieves all needed data via MCP Tools (see below)
 
-**AdapterAgent Integration (Shared Database Architecture)**:
+- **Via ProfileManagement MCP Tool** (Composer retrieves using user_id):
+  - User profile (structured format with parsed experience, achievements, skills)
+  - Baseline CV (original CV from onboarding, parsed into structured format)
+  - User style preferences (tone, formality, metrics density, leadership emphasis - learned from AdapterAgent)
 
-- **Composer → AdapterAgent** (writes on user approval):  
-  - Table: `composer_feedback`  
-  - Stores per USER \+ JOB (specific application):  
-    - Original draft (CV \+ Cover Letter in Markdown)  
-    - User-edited final version (Markdown, if user made edits; NULL otherwise)  
-    - User feedback reasons (if provided): \["not my voice", "not matching enough", etc.\]  
-    - Factuality score (0-100%)  
-    - Match score (CV/Cover Letter \- Job, 0-100%)  
-    - Timestamp of approval  
+- **Via ApplicationManagement MCP Tool** (Composer retrieves using application_id):
+  - Job description (company, title, location, full description, salary_text (optional))
+  - Match score (0-100)
+  - Match summary (1-2 line explanation of why job fits user, from Matcher's `summary` field)
+  - Skills keywords (comma-separated keywords extracted from job description)
+  - **Note on Skills**: Composer must match CV/Cover Letter to provided skills keywords for ATS optimization ONLY IF the user profile contains those skills (maintain 100% factuality - never fabricate skills)
+  - Previous draft iterations for this specific job (if user requested regeneration), with:
+    - Draft CV / Cover Letter (Markdown)
+    - Factuality score
+    - Match score of CV/Cover Letter - Job
+    - User feedback reasons for edit/regeneration
+
+**AdapterAgent Integration (via MCP Tools)**:
+
+- **Composer → AdapterAgent** (writes on user approval):
+  - Via: `ApplicationManagement.store_final_pdfs()` and application status update
+  - Stores per USER \+ JOB (specific application):
+    - Original draft (CV \+ Cover Letter in Markdown)
+    - User-edited final version (Markdown, if user made edits; NULL otherwise)
+    - User feedback reasons (if provided): \["not my voice", "not matching enough", etc.\]
+    - Factuality score (0-100%)
+    - Match score (CV/Cover Letter \- Job, 0-100%)
+    - Timestamp of approval
   - Purpose: Raw feedback data for AdapterAgent to learn from
 
-- **AdapterAgent → Composer** (writes nightly batch):  
-  - Table: `user_style_profiles`  
-  - Stores per USER:  
-    - Learned style preferences:  
-      - Tone (e.g., "analytical", "narrative", "conversational")  
-      - Formality (0.0-1.0 scale)  
-      - Metrics density (preference for quantified achievements)  
-      - Leadership emphasis (0.0-1.0 scale)  
-      - Generic skills usage (0.0 \= specific, 1.0 \= generic)  
-    - Last updated timestamp  
-    - Sample size (number of approved documents analyzed)  
-    - Confidence level (statistical confidence in this profile)  
+- **AdapterAgent → Composer** (writes nightly batch):
+  - Via: `ProfileManagement.update_style_preferences()`
+  - Stores per USER:
+    - Learned style preferences:
+      - Tone (e.g., "analytical", "narrative", "conversational")
+      - Formality (0.0-1.0 scale)
+      - Metrics density (preference for quantified achievements)
+      - Leadership emphasis (0.0-1.0 scale)
+      - Generic skills usage (0.0 \= specific, 1.0 \= generic)
+    - Last updated timestamp
+    - Sample size (number of approved documents analyzed)
+    - Confidence level (statistical confidence in this profile)
   - Purpose: Style preferences used by Composer for next job generation
 
 
-- **Data Flow**:  
-  1. **Initial Generation**:  
-     - Composer reads `user_style_profiles` WHERE user\_id \= X (if exists) → injects into LLM prompt  
-     - Composer generates draft (CV \+ Cover Letter)  
-     - Composer calculates factuality score \+ match score  
-     - Composer writes to `draft_iterations` table: draft, scores, status \= "draft\_ready", version \= 1  
-     - User notified via email
+- **Data Flow**:
+  1. **Initial Generation**:
+     - Composer calls `ProfileManagement.get_style_preferences(user_id)` (if exists) → injects into LLM prompt
+     - Composer calls `ProfileManagement.get_user_profile(user_id)` and `ApplicationManagement.get_application_data(application_id)`
+     - Composer generates draft (CV \+ Cover Letter)
+     - Composer calculates factuality score \+ match score
+     - Composer calls `ApplicationManagement.store_draft(application_id, draft_data)`: draft, scores, version \= 1
+     - Composer calls `ApplicationManagement.update_status(application_id, "draft_ready")`
+     - Composer calls Orchestrator callback to notify user via email
 
-     
-
-  2. **User Review \- Regenerate Loop** (if user requests):  
-     - User provides feedback reasons: \["not my voice", "not matching enough"\]  
-     - Composer reads previous iteration from `draft_iterations` (version N)  
-     - Composer writes feedback reasons to `draft_iterations` (version N)  
-     - Composer generates NEW draft using feedback \+ previous iteration context  
-     - Composer calculates new scores  
-     - Composer writes to `draft_iterations`: new draft, new scores, status \= "draft\_ready", version \= N+1  
+  2. **User Review \- Regenerate Loop** (if user requests):
+     - User provides feedback reasons: \["not my voice", "not matching enough"\]
+     - Composer calls `ApplicationManagement.get_draft_iterations(application_id)` (reads version N)
+     - Composer calls `ApplicationManagement.store_feedback(application_id, version_N, feedback_reasons)`
+     - Composer generates NEW draft using feedback \+ previous iteration context
+     - Composer calculates new scores
+     - Composer calls `ApplicationManagement.store_draft(application_id, new_draft_data)`: version \= N+1
+     - Composer calls `ApplicationManagement.update_status(application_id, "draft_ready")`
+     - Composer calls Orchestrator callback
      - User reviews new version (can loop back to step 2\)
 
-     
-
-  3. **User Review \- Edit Loop** (if user edits inline):  
-     - User makes text edits directly in Markdown editor  
-     - User optionally provides reasons: \["not factual", "didn't like wording"\]  
-     - Composer reads current draft from `draft_iterations` (version N)  
-     - Composer writes to `draft_iterations`: original draft (unchanged), edited version, edit reasons, version \= N (updated)  
+  3. **User Review \- Edit Loop** (if user edits inline):
+     - User makes text edits directly in Markdown editor
+     - User optionally provides reasons: \["not factual", "didn't like wording"\]
+     - UI calls `ApplicationManagement.store_draft(application_id, edited_draft_data)` with edited version
+     - Composer not involved (UI handles storage directly)
      - User can still regenerate (go to step 2\) or approve (go to step 4\)
 
-     
+  4. **User Approval**:
+     - User clicks "Approve"
+     - Composer calls `ApplicationManagement.get_draft_iterations(application_id)` (gets latest version)
+     - Composer generates PDFs
+     - Composer calls `ApplicationManagement.store_final_pdfs(application_id, cv_pdf, cover_letter_pdf)`
+     - Composer calls `ApplicationManagement.update_status(application_id, "approved")` (this stores all feedback data for AdapterAgent)
+     - Composer calls Orchestrator callback with success
 
-  4. **User Approval**:  
-     - User clicks "Approve"  
-     - Composer reads final version from `draft_iterations` (latest version)  
-     - Composer generates PDFs  
-     - Composer writes to `composer_feedback` table:  
-       - Original draft (first generated version)  
-       - User-edited final version (if edited; NULL if not)  
-       - All user feedback reasons (aggregated from all iterations)  
-       - Final factuality \+ match scores  
-       - Timestamp of approval  
-     - Composer updates status \= "approved" in `draft_iterations`
+  5. **AdapterAgent Learning** (nightly batch, 2am UTC):
+     - AdapterAgent calls `ApplicationManagement.get_application_history(user_id, {status: "approved", approved_after: last_run_timestamp})`
+     - For each user with ≥3 approved documents:
+       - AdapterAgent analyzes: original vs edited versions, feedback reasons
+       - AdapterAgent extracts style patterns (tone, formality, metrics density)
+     - AdapterAgent calls `ProfileManagement.update_style_preferences(user_id, learned_preferences)`
 
-     
-
-     
-
-  5. **AdapterAgent Learning** (nightly batch, 2am UTC):  
-     - AdapterAgent reads `composer_feedback` WHERE approved\_at \> last\_run\_timestamp  
-     - For each user with ≥3 approved documents:  
-       - AdapterAgent analyzes: original vs edited versions, feedback reasons  
-       - AdapterAgent extracts style patterns (tone, formality, metrics density)  
-     - AdapterAgent updates `user_style_profiles` with learned preferences
-
-     
-
-  6. **Next Job Generation**:  
-     - Matcher finds new match  
-     - Composer reads updated `user_style_profiles` → improved style alignment  
+  6. **Next Job Generation**:
+     - Matcher finds new match
+     - Orchestrator triggers Composer with new application_id
+     - Composer calls `ProfileManagement.get_style_preferences(user_id)` → improved style alignment
      - Go to step 1 (but now with learned preferences)
 
 
-- **Ownership Rules**:  
-  - AdapterAgent is **sole writer** to `user_style_profiles` (Composer read-only)  
-  - Composer is **sole writer** to `composer_feedback` (AdapterAgent read-only)  
+- **Ownership Rules**:
+  - AdapterAgent is **sole writer** for style preferences via `ProfileManagement.update_style_preferences()` (Composer read-only)
+  - Composer is **sole writer** for application drafts and feedback via `ApplicationManagement` operations (AdapterAgent read-only)
   - Clear boundaries prevent data conflicts
 
 **Core Tools & Access**:
 
-- **LLM API**: GPT-4o-mini (production) / Gemini 2.5 Flash (buildathon demo)  
-  - Temperature: 0.3 (factuality prioritized)  
-- **Fact-Check Module**: Internal validation (claims vs. profile data)  
-  - Runs automatically before exposing draft to user  
-- **Match Scorer**: LLM-as-judge (ATS simulation scoring)  
-  - Runs automatically before exposing draft to user  
-- **PDF Generator**: Markdown → PDF conversion (on user approval)  
-- **Database**: Read/Write access  
-  - **Read**: (See Upstream above)  
-  - **Write**: (See Downstream here below)
+- **MCP Tools** (centralized data access):
+  - `ProfileManagement`: Read user profile, baseline CV, style preferences
+  - `ApplicationManagement`: Read application data, store drafts, update status, store PDFs
+
+- **LLM API**: GPT-4o-mini (production) / Gemini 2.5 Flash (buildathon demo)
+  - Temperature: 0.3 (factuality prioritized)
+
+- **Fact-Check Module**: Internal validation (claims vs. profile data)
+  - Runs automatically before exposing draft to user
+
+- **Match Scorer**: LLM-as-judge (ATS simulation scoring)
+  - Runs automatically before exposing draft to user
+
+- **PDF Generator**: Markdown → PDF conversion (on user approval)
 
 **Automatic Generation Workflow**:
 
-1. **Trigger**: Matcher Agent finds high-quality match (score ≥80)  
-2. Composer generates CV \+ Cover Letter draft (Markdown) automatically  
-3. Calculate factuality score (automated fact-check against profile)  
-4. Calculate match score (LLM-as-judge ATS simulation)  
-5. **IF scores fail (factuality \<99% OR match \<80%)**:  
-   - Regenerate with adjusted prompt (loop max 2-3 times)  
-   - If still failing → escalate (see Stop Rules)  
-6. **IF scores pass**: Store draft in database with status \= "draft\_ready"  
-7. Notify user via:  
-   - Email for first draft version ("New CV/Cover Letter ready for Job X at Company Y").  
-   - Via n8n webhook on subsequent iterations
+1. **Orchestrator observes** for new potential applications (new matched jobs from Matcher Agent with fit_band \= "High", score ≥85)
+2. **For each new job match, Trigger**: Orchestrator calls Composer webhook with `{application_id, user_id, callback_url}`
+3. Composer retrieves data via `ProfileManagement.get_user_profile()`, `ProfileManagement.get_style_preferences()`, and `ApplicationManagement.get_application_data()`
+4. Composer generates CV \+ Cover Letter draft (Markdown) automatically
+5. Calculate factuality score (automated fact-check against profile)
+6. Calculate match score (LLM-as-judge ATS simulation)
+7. **IF scores fail (factuality \<99% OR match \<85%)**:
+   - Regenerate with adjusted prompt (loop max 2-3 times)
+   - If still failing → escalate (see Stop Rules)
+8. **IF scores pass**: Store draft via `ApplicationManagement.store_draft()` and update status via `ApplicationManagement.update_status(application_id, "draft_ready")`
+9. Call Orchestrator callback webhook with completion status
+10. Orchestrator sends email notification to user: "New CV/Cover Letter ready for \[Job Title\] at \[Company\]"
 
 **User Review & Iteration Loop** (when user has time):
 
-1. User opens draft (side-by-side with job description)  
-2. User provides action \+ optional feedback:  
-   - **Regenerate** with optional reasons:  
-     - "Not factual"  
-     - "Not matching / tailored to job enough"  
-     - "Not my voice"  
-     - "I just did not like it"  
-   - **Edit inline** (Markdown editor) with optional reasons (same as above):  
-     - User makes direct text edits  
-     - User can specify WHY they edited (helps AdapterAgent learn)  
-   - **Approve**: Lock draft, generate PDFs  
-3. If Regenerate: Return to step 2 of Automatic Generation (inner loop)  
-4. If Edit: Save edited version \+ feedback reasons, user can approve or regenerate again  
-5. If Approve: Generate PDFs, update status \= "approved", store with application data
+1. User opens draft (side-by-side with job description)
+2. User provides action \+ optional feedback:
+   - **Regenerate** with optional reasons:
+     - "Not factual"
+     - "Not matching / tailored to job enough"
+     - "Not my voice"
+     - "I just did not like it"
+   - **Edit inline** (Markdown editor) with optional reasons (same as above):
+     - User makes direct text edits
+     - User can specify WHY they edited (helps AdapterAgent learn)
+   - **Approve**: Lock draft, generate PDFs
+3. If Regenerate: Orchestrator calls Composer with `{application_id, user_id, feedback_reasons[], callback_url}` → Composer runs full workflow again (including inner loop if scores fail)
+4. If Edit: UI stores edited version via `ApplicationManagement.store_draft()` with feedback reasons, user can approve or regenerate again
+5. If Approve: Orchestrator calls Composer with `{application_id, user_id, callback_url}` → Composer generates PDFs via `ApplicationManagement.store_final_pdfs()`, updates status via `ApplicationManagement.update_status(application_id, "approved")`, calls callback
 
 **Downstream Outputs**:
 
-- **To User (via n8n webhook)**:  
-  - Draft completion notification (automatic, after generation, via email)  
-  - Approval confirmation (with download link for the PDFs)  
-- **To Database**:  
-  - Application status updates: "draft\_ready" → "approved" → "downloaded" → "applied"  
-  - Store drafts (Markdown), metadata (scores, timestamp, version), final PDFs, application status  
-  - This draft iteration for this specific job with:  
-    - CV / Cover Letter (in internal format)  
-    - Factuality score  
-    - Match score of CV / Cover Letter \- Job  
-    - Timestamp  
-    - Version  
-    - If this version was from a user edit / regeneration: Reasons from the user  
-- **To AdapterAgent** (post-approval, cross-job learning):  
-  - Original draft and user-edited final version  
-  - User feedback reasons (if provided during regeneration or editing)  
-  - Factuality \+ Match scores  
-- **To Health Monitoring System**:  
-  - Factuality score, match score, generation latency, cost per generation  
+- **To Orchestrator (via callback webhook)**:
+  - Draft completion notification (callback with application_id, status, job details)
+  - Approval confirmation (callback with success status)
+  - Orchestrator handles user email notifications
+
+- **Via ApplicationManagement MCP Tool** (Composer writes):
+  - Application status updates: "draft\_ready" → "approved" → "downloaded" → "applied"
+  - Store drafts (Markdown), metadata (scores, timestamp, version), final PDFs
+  - Each draft iteration for this specific job includes:
+    - CV / Cover Letter (Markdown format)
+    - Factuality score
+    - Match score of CV / Cover Letter \- Job
+    - Timestamp
+    - Version number
+    - If this version was from a user edit / regeneration: User feedback reasons
+
+- **To AdapterAgent** (post-approval, cross-job learning):
+  - AdapterAgent reads via `ApplicationManagement.get_application_history()`
+  - Data available: Original draft, user-edited final version, user feedback reasons, factuality \+ match scores
+
+- **To Health Monitoring System**:
+  - Factuality score, match score, generation latency, cost per generation
   - Regeneration attempts, approval rate, edit distance
 
-**Data Flow Summary**:  
-Matcher (Finds a Match) → Composer (auto-generates) → User (reviews later, iterates with Composer in a loop) → User (edits/approves) → Composer (generates PDF) → AdapterAgent (learns) → Feeds User Profile for Composer to better adapt on the next job generation
+**Data Flow Summary**:
+Matcher (Finds Match) → Orchestrator (Observes) → Orchestrator (Triggers Composer for each match) → Composer (auto-generates, calls callback) → Orchestrator (Notifies User) → User (reviews later, requests regenerate/edit/approve via Orchestrator) → Composer (regenerates or generates PDFs) → AdapterAgent (learns nightly via MCP tools) → ProfileManagement (updates style preferences) → Next Composer generation uses learned preferences
 
 **Important Notes**:
 
-- **Automatic generation**: User does NOT trigger generation. Composer generates automatically when Matcher finds a good match.  
-- **Baseline CV**: Constant CV reference from the onboarding, available in User Profile
+- **Automatic generation**: User does NOT trigger generation. Orchestrator monitors for new matches and triggers Composer automatically.
+- **Baseline CV**: Constant CV reference from onboarding, retrieved via `ProfileManagement.get_baseline_cv(user_id)`
+- **Asynchronous workflow**: Orchestrator uses callback pattern for parallel processing of multiple job applications
 
 **Excluded from MVP** (Post-MVP features):
 
@@ -310,8 +312,8 @@ Matcher (Finds a Match) → Composer (auto-generates) → User (reviews later, i
    - Fabricated claims \= user reputation damage, potential job loss (HIGH blast radius)  
    - Poor tailoring \= lower interview rate but user can edit (MEDIUM impact, recoverable)  
    - **Decision**: If forced to choose, generate less tailored but 100% factual document  
-2. **Matching \> Speed**:  
-   - 80%+ match score \= higher ATS pass rate and interview likelihood  
+2. **Matching \> Speed**:
+   - 85%+ match score \= higher ATS pass rate and interview likelihood  
    - Slow generation \= user friction (acceptable since it's automatic/background)  
    - **Decision**: Invest 2-3s extra for match scoring before output (validate before showing)  
 3. **Speed \> Cost**:  
@@ -322,7 +324,7 @@ Matcher (Finds a Match) → Composer (auto-generates) → User (reviews later, i
 
 **Edge Case \- Factuality vs. Matching Conflict**:
 
-- If inner loop fails both (factuality \<99% AND match \<80% after 3 attempts) → Escalate (see Stop Rules)
+- If inner loop fails both (factuality \<99% AND match \<85% after 3 attempts) → Escalate (see Stop Rules)
 
 5. #### Constraints
 
@@ -344,15 +346,15 @@ Matcher (Finds a Match) → Composer (auto-generates) → User (reviews later, i
 - If CV/Cover Letter fact-check validation not passed (\>1% unsupported claims) → Regenerate with:  
   - Reduce temperature by 10% (do not go lower than 0.2)  
   - Stricter prompt emphasizing factuality  
-- If CV/Cover Letter \- Job Description match \<80% → Regenerate with:  
+- If CV/Cover Letter \- Job Description match \<85% → Regenerate with:
   - Enhanced prompt focusing on keyword alignment and tailoring  
 - After 3 consecutive attempts failing both factuality AND match quality → STOP (see Section 7 Stop Rules)
 
 **Dependency Guardrails** (graceful degradation only \- critical failures in Section 7):
 
-- Cannot access baseline CV → Use profile text only (graceful degradation, log warning)  
-- Cannot access previous iterations (if regenerating) → Start fresh from version 1 (graceful degradation)  
-- Cannot access AdapterAgent style profile → Skip style preferences, use baseline only (graceful degradation)
+- `ProfileManagement.get_baseline_cv()` fails → Use profile text only (graceful degradation, log warning)
+- `ApplicationManagement.get_draft_iterations()` fails (if regenerating) → Start fresh from version 1 (graceful degradation)
+- `ProfileManagement.get_style_preferences()` returns null or fails → Skip style preferences, use baseline only (graceful degradation)
 
 **Data Integrity Guardrails**:
 
@@ -372,15 +374,16 @@ Matcher (Finds a Match) → Composer (auto-generates) → User (reviews later, i
 
 **Critical Data Access Failures** (cannot recover):
 
-- STOP if cannot access user profile → Escalate error: "Critical dependency unavailable \- user profile required for generation"  
-- STOP if cannot write to database (draft\_iterations table) → Escalate error: "Data loss risk \- unable to persist drafts. Check database connection."
+- STOP if `ProfileManagement.get_user_profile()` fails → Escalate error: "Critical dependency unavailable \- user profile required for generation"
+- STOP if `ApplicationManagement.store_draft()` fails → Escalate error: "Data loss risk \- unable to persist drafts. Check MCP tool availability."
+- STOP if MCP tools are unreachable (connection failure) → Escalate error: "MCP service unavailable \- cannot access data layer. Generation blocked."
 
 **Generation Quality Failures** (exhausted all attempts):
 
 - STOP if user profile has \<3 work experiences/achievements → Escalate to user: "Insufficient profile data for quality generation. Please add at least 3 work experiences with achievements to your profile."  
-- STOP if after 3 consecutive regeneration attempts, both conditions fail:  
-  - Factuality \<99% (\>1% unsupported claims) AND  
-  - Match score \<80% → Escalate to user: "Unable to generate document that is both factual and well-matched to the job. Possible causes: incomplete profile, job requirements too specific, or mismatch between your background and role. Please review your profile or manually edit."
+- STOP if after 3 consecutive regeneration attempts, both conditions fail:
+  - Factuality \<99% (\>1% unsupported claims) AND
+  - Match score \<85% → Escalate to user: "Unable to generate document that is both factual and well-matched to the job. Possible causes: incomplete profile, job requirements too specific, or mismatch between your background and role. Please review your profile or manually edit."
 
 **System Failures** (core functionality unavailable):
 
@@ -390,8 +393,8 @@ Matcher (Finds a Match) → Composer (auto-generates) → User (reviews later, i
 
 **Data Integrity Failures** (output validation failed):
 
-- STOP if generated CV is empty (CV \<100 words) → Escalate error: "Generation produced empty CV output"  
-- STOP if generated Cover Letter is empty (Cover Letter \<150 words) → Escalate error: "Generation produced empty Cover Letter output"  
-- STOP if version numbering breaks (non-sequential or duplicate) → Escalate error: "Data consistency issue detected \- version conflict in draft\_iterations table"
+- STOP if generated CV is empty (CV \<100 words) → Escalate error: "Generation produced empty CV output"
+- STOP if generated Cover Letter is empty (Cover Letter \<150 words) → Escalate error: "Generation produced empty Cover Letter output"
+- STOP if version numbering breaks (non-sequential or duplicate) → Escalate error: "Data consistency issue detected \- version conflict"
 
-**Note**: Graceful degradation scenarios (e.g., cannot access baseline CV, cannot access AdapterAgent style profile, cannot access previous iterations) do NOT trigger STOP \- see Section 5 Dependency Guardrails for fallback behavior.  
+**Note**: Graceful degradation scenarios (e.g., `ProfileManagement.get_baseline_cv()` fails, `ProfileManagement.get_style_preferences()` returns null, `ApplicationManagement.get_draft_iterations()` fails) do NOT trigger STOP \- see Section 5 Dependency Guardrails for fallback behavior.  
