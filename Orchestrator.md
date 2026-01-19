@@ -113,7 +113,7 @@ Coordinates data flow between agents, monitors triggers, and manages the end-to-
 
 - **Edit**:
   - User makes inline edits in UI
-  - UI directly calls `ApplicationManagement.store_edited_draft()`
+  - UI directly calls `ApplicationManagement.store_edited_draft()`; this is the mechanism that transitions the application to `edited`
   - No Composer or Orchestrator involvement
 
 - **Approve**:
@@ -129,7 +129,7 @@ Coordinates data flow between agents, monitors triggers, and manages the end-to-
 
 **Workflow**:
 1. Cron triggers AdapterAgent
-2. AdapterAgent retrieves approved applications via `ApplicationManagement.get_approved_since(last_run_timestamp)`
+2. AdapterAgent retrieves approved applications via `ApplicationManagement.get_application_history(user_id, {status: "approved", approved_after: last_run_timestamp})`
 3. AdapterAgent analyzes patterns and updates style preferences via `ProfileManagement.update_style_preferences(user_id, preferences)`
 4. Next Composer generation uses updated preferences
 

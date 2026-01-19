@@ -31,7 +31,7 @@ High Level User Workflow:
       \- “I just did not like it”.  
    3. **Approve**.  
 5. If Regenerate → Generate new draft CV and Cover Letter, considering the feedback from the user.  
-6. In case of Edit → Feed the AdapterAgent with original draft and user-edited version.  
+6. In case of Edit → UI stores the edited version via `ApplicationManagement.store_edited_draft()`; AdapterAgent learns later from approved history.  
 7. In case of Regenerate or Edit inline: Save new draft in database.  
 8. User keeps iterating on the CV / Cover Letter until **approval**.  
 9. Upon approval: Generate final PDFs (CV \+ Cover Letter)  
@@ -116,7 +116,7 @@ High Level User Workflow:
 - **Via ApplicationManagement MCP Tool** (Composer retrieves using application_id):
   - Job description (company, title, location_country, location_city, full description, salary_text (optional))
   - Match score (0-100)
-  - Match summary (1-2 line explanation of why job fits user, from Matcher's `summary` field)
+  - Match summary (1-2 line explanation of why job fits user, from Matcher's `match_summary` field)
   - Skills keywords (comma-separated keywords extracted from job description)
   - **Note on Skills**: Composer must match CV/Cover Letter to provided skills keywords for ATS optimization ONLY IF the user profile contains those skills (maintain 100% factuality - never fabricate skills)
   - Previous draft iterations for this specific job (if user requested regeneration), with:
@@ -159,17 +159,17 @@ High Level User Workflow:
      - Composer calls `ProfileManagement.get_user_profile(user_id)` and `ApplicationManagement.get_application_data(application_id)`
      - Composer generates draft (CV \+ Cover Letter)
      - Composer calculates factuality score \+ match score
-     - Composer calls `ApplicationManagement.store_draft(application_id, draft_data)`: draft, scores, version \= 1
+     - Composer calls `ApplicationManagement.store_draft(application_id, draft_data)`: draft and scores
      - Composer calls `ApplicationManagement.update_status(application_id, "draft_ready")`
      - Composer calls Orchestrator callback to notify user via email
 
   2. **User Review \- Regenerate Loop** (if user requests):
      - User provides feedback reasons: \["not my voice", "not matching enough"\]
-     - Composer calls `ApplicationManagement.get_draft_iterations(application_id)` (reads version N)
-     - Composer calls `ApplicationManagement.store_feedback(application_id, version_N, feedback_reasons)`
+     - Composer calls `ApplicationManagement.get_draft_iterations(application_id)` (reads latest version)
+     - Composer calls `ApplicationManagement.store_feedback(application_id, latest_version, feedback_reasons)`
      - Composer generates NEW draft using feedback \+ previous iteration context
      - Composer calculates new scores
-     - Composer calls `ApplicationManagement.store_draft(application_id, new_draft_data)`: version \= N+1
+     - Composer calls `ApplicationManagement.store_draft(application_id, new_draft_data)`
      - Composer calls `ApplicationManagement.update_status(application_id, "draft_ready")`
      - Composer calls Orchestrator callback
      - User reviews new version (can loop back to step 2\)
@@ -177,7 +177,7 @@ High Level User Workflow:
   3. **User Review \- Edit Loop** (if user edits inline):
      - User makes text edits directly in Markdown editor
      - User optionally provides reasons: \["not factual", "didn't like wording"\]
-     - UI calls `ApplicationManagement.store_draft(application_id, edited_draft_data)` with edited version
+     - UI calls `ApplicationManagement.store_edited_draft(application_id, edited_draft_data)` with edited version
      - Composer not involved (UI handles storage directly)
      - User can still regenerate (go to step 2\) or approve (go to step 4\)
 
@@ -254,7 +254,7 @@ High Level User Workflow:
      - User can specify WHY they edited (helps AdapterAgent learn)
    - **Approve**: Lock draft, generate PDFs
 3. If Regenerate: Orchestrator calls Composer with `{application_id, user_id, feedback_reasons[], callback_url}` → Composer runs full workflow again (including inner loop if scores fail)
-4. If Edit: UI stores edited version via `ApplicationManagement.store_draft()` with feedback reasons, user can approve or regenerate again
+4. If Edit: UI stores edited version via `ApplicationManagement.store_edited_draft()` with feedback reasons, user can approve or regenerate again
 5. If Approve: Orchestrator calls Composer with `{application_id, user_id, callback_url}` → Composer generates PDFs via `ApplicationManagement.store_final_pdfs()`, updates status via `ApplicationManagement.update_status(application_id, "approved")`, calls callback
 
 **Downstream Outputs**:
@@ -266,13 +266,13 @@ High Level User Workflow:
 
 - **Via ApplicationManagement MCP Tool** (Composer writes):
   - Application status updates: "draft\_ready" → "approved" → "downloaded" → "applied"
-  - Store drafts (Markdown), metadata (scores, timestamp, version), final PDFs
+  - Store drafts (Markdown), metadata (scores, timestamp, version auto-assigned), final PDFs
   - Each draft iteration for this specific job includes:
     - CV / Cover Letter (Markdown format)
     - Factuality score
     - Match score of CV / Cover Letter \- Job
     - Timestamp
-    - Version number
+    - Version number (auto-assigned by the tool)
     - If this version was from a user edit / regeneration: User feedback reasons
 
 - **To AdapterAgent** (post-approval, cross-job learning):
@@ -355,7 +355,7 @@ Matcher (Finds Match) → Orchestrator (Observes) → Orchestrator (Triggers Com
 **Dependency Guardrails** (graceful degradation only \- critical failures in Section 7):
 
 - `ProfileManagement.get_baseline_cv()` fails → Use profile text only (graceful degradation, log warning)
-- `ApplicationManagement.get_draft_iterations()` fails (if regenerating) → Start fresh from version 1 (graceful degradation)
+- `ApplicationManagement.get_draft_iterations()` fails (if regenerating) → Start fresh with a new draft (graceful degradation)
 - `ProfileManagement.get_style_preferences()` returns null or fails → Skip style preferences, use baseline only (graceful degradation)
 
 **Data Integrity Guardrails**:
@@ -363,7 +363,6 @@ Matcher (Finds Match) → Orchestrator (Observes) → Orchestrator (Triggers Com
 - Ensure CV is not empty (minimum 100 words) → If fails, STOP (see Section 7\)  
 - Ensure Cover Letter is not empty (minimum 150 words) → If fails, STOP (see Section 7\)  
 - Ensure both factuality score AND match score are calculated before exposing draft → If fails, STOP (see Section 7\)  
-- Ensure version numbering is sequential (no gaps) → If fails, STOP (see Section 7\)
 
 6. #### Decision Types and Autonomy:
 
@@ -397,6 +396,5 @@ Matcher (Finds Match) → Orchestrator (Observes) → Orchestrator (Triggers Com
 
 - STOP if generated CV is empty (CV \<100 words) → Escalate error: "Generation produced empty CV output"
 - STOP if generated Cover Letter is empty (Cover Letter \<150 words) → Escalate error: "Generation produced empty Cover Letter output"
-- STOP if version numbering breaks (non-sequential or duplicate) → Escalate error: "Data consistency issue detected \- version conflict"
 
 **Note**: Graceful degradation scenarios (e.g., `ProfileManagement.get_baseline_cv()` fails, `ProfileManagement.get_style_preferences()` returns null, `ApplicationManagement.get_draft_iterations()` fails) do NOT trigger STOP \- see Section 5 Dependency Guardrails for fallback behavior.  

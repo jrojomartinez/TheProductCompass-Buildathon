@@ -13,7 +13,7 @@ Common tools accessible via MCP (Model Context Protocol) for all agents in the C
 - Read user profile (structured experience, achievements, skills)
 - Read baseline CV (original CV from onboarding, parsed format)
 - Read user style preferences (learned by AdapterAgent)
-- Read user job search configuration (target titles, locations, keywords, seniority)
+- Read user job search configuration (target titles, locations, work mode, keywords, seniority)
 - Update user profile fields
 - Update style preferences
 
@@ -83,7 +83,8 @@ Common tools accessible via MCP (Model Context Protocol) for all agents in the C
 {
   "user_id": "uuid",
   "target_titles": ["Product Owner", "Product Manager", "Agile Coach"],
-  "target_locations": ["CH", "DE", "IT", "Remote"],
+  "target_locations": ["CH", "DE", "IT"],
+  "work_mode": ["Remote", "Hybrid", "On-site"],
   "must_have_keywords": ["SAP Commerce", "Agile", "Scrum"],
   "nice_to_have_keywords": ["Mirakl", "Jira", "API Integration"],
   "exclude_keywords": ["Junior", "Intern", "Sales"],
@@ -234,12 +235,24 @@ Common tools accessible via MCP (Model Context Protocol) for all agents in the C
 ```json
 {
   "application_id": "uuid",
-  "version": 1,
   "cv_markdown": "# John Doe\n\n...",
   "cover_letter_markdown": "Dear Hiring Manager...",
   "factuality_score": 99.5,
   "match_score": 87.0,
   "feedback_reasons": null  // or ["not my voice", "not matching enough"] if regeneration
+}
+```
+**Note**: Draft versioning is auto-incremented by the tool logic.
+
+### `store_edited_draft(application_id, edited_draft_data)`
+**Purpose**: Store user-edited draft content and automatically update status to `edited`.
+**Parameters**:
+```json
+{
+  "application_id": "uuid",
+  "cv_markdown": "# John Doe\n\n...",
+  "cover_letter_markdown": "Dear Hiring Manager...",
+  "feedback_reasons": ["not factual", "didn't like wording"]  // optional
 }
 ```
 
@@ -248,7 +261,7 @@ Common tools accessible via MCP (Model Context Protocol) for all agents in the C
 **Returns**: Array of draft versions (latest first)
 
 ### `store_feedback(application_id, version, feedback_reasons)`
-**Purpose**: Store user feedback reasons when regenerating or editing
+**Purpose**: Store user feedback reasons when regenerating
 **Parameters**:
 ```json
 {
@@ -257,6 +270,7 @@ Common tools accessible via MCP (Model Context Protocol) for all agents in the C
   "feedback_reasons": ["not my voice", "not matching enough"]
 }
 ```
+**Note**: Edits use `store_edited_draft` with optional `feedback_reasons`.
 
 ### `update_status(application_id, new_status)`
 **Purpose**: Update application status
