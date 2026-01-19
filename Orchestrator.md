@@ -22,20 +22,21 @@ Coordinates data flow between agents, monitors triggers, and manages the end-to-
 ---
 
 ### 2. Orchestrator → Composer Flow (Asynchronous)
-**Trigger**: New job(s) with fit_band = "High" (score ≥85) detected
+**Trigger**: New job(s) with fit_band = "High" (score ≥85) AND dealbreakers = null detected
 
 **Workflow**:
 1. **Monitor**: Orchestrator polls `ApplicationManagement` tool every 15 minutes
-2. **Query**: Check for new applications where:
-   - `fit_band` = "High"
-   - `status` = "new_match" (not yet processed by Composer)
-3. **For each new high-quality match** (one call per application):
+2. **Query**: Uses `ApplicationManagement.get_applications_by_status(user_id, "new_match", limit)` to find new applications
+3. **Filter**: From results, process only applications where:
+   - `fit_band` = "High" (score ≥85)
+   - `dealbreakers` = null (no blocking issues)
+4. **For each filtered high-quality match** (one call per application):
    - Orchestrator makes **ONE individual call** to Composer per application
    - Each call is independent and asynchronous
    - If there are 5 new matches, Orchestrator makes 5 separate calls to Composer
    - Composer can process these in parallel
 
-4. **Composer webhook call** (per application):
+5. **Composer webhook call** (per application):
    - HTTP POST to Composer endpoint
    - Request payload (single application):
      ```json
@@ -47,7 +48,7 @@ Coordinates data flow between agents, monitors triggers, and manages the end-to-
      ```
    - **Orchestrator does NOT wait** - immediately continues to next application or other tasks
 
-5. **Composer workflow** (runs asynchronously per application):
+6. **Composer workflow** (runs asynchronously per application):
    - Retrieves job data via `ApplicationManagement.get_application_data(application_id)`
    - Retrieves user data via `ProfileManagement.get_user_profile(user_id)`
    - Generates CV + Cover Letter

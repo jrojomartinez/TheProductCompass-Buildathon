@@ -102,8 +102,10 @@ High Level User Workflow:
 
 - **From Orchestrator** (automatic trigger via webhook):
   - Webhook payload: `{application_id, user_id, callback_url}`
-  - Orchestrator monitors for new high-quality matches (fit_band = "High", score ≥85)
-  - For each new match, Orchestrator triggers Composer with application and user identifiers
+  - Orchestrator monitors ApplicationManagement for new applications (status = "new_match")
+  - **Orchestrator filters for fit_band = "High" (score ≥85) AND dealbreakers = null** before triggering Composer
+  - Note: Matcher stores ALL jobs (High/Medium/Low) in ApplicationManagement; Orchestrator decides which get CV/Cover Letter generation
+  - For each filtered high-quality match, Orchestrator triggers Composer with application and user identifiers
   - Composer retrieves all needed data via MCP Tools (see below)
 
 - **Via ProfileManagement MCP Tool** (Composer retrieves using user_id):
@@ -112,7 +114,7 @@ High Level User Workflow:
   - User style preferences (tone, formality, metrics density, leadership emphasis - learned from AdapterAgent)
 
 - **Via ApplicationManagement MCP Tool** (Composer retrieves using application_id):
-  - Job description (company, title, location, full description, salary_text (optional))
+  - Job description (company, title, location_country, location_city, full description, salary_text (optional))
   - Match score (0-100)
   - Match summary (1-2 line explanation of why job fits user, from Matcher's `summary` field)
   - Skills keywords (comma-separated keywords extracted from job description)

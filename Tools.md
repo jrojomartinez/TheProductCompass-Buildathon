@@ -13,6 +13,7 @@ Common tools accessible via MCP (Model Context Protocol) for all agents in the C
 - Read user profile (structured experience, achievements, skills)
 - Read baseline CV (original CV from onboarding, parsed format)
 - Read user style preferences (learned by AdapterAgent)
+- Read user job search configuration (target titles, locations, keywords, seniority)
 - Update user profile fields
 - Update style preferences
 
@@ -76,6 +77,23 @@ Common tools accessible via MCP (Model Context Protocol) for all agents in the C
 ```
 **Note**: Returns `null` if user hasn't approved ≥3 documents yet (insufficient data for learning).
 
+### `get_user_config(user_id)`
+**Returns**: User job search configuration and preferences
+```json
+{
+  "user_id": "uuid",
+  "target_titles": ["Product Owner", "Product Manager", "Agile Coach"],
+  "target_locations": ["CH", "DE", "IT", "Remote"],
+  "must_have_keywords": ["SAP Commerce", "Agile", "Scrum"],
+  "nice_to_have_keywords": ["Mirakl", "Jira", "API Integration"],
+  "exclude_keywords": ["Junior", "Intern", "Sales"],
+  "seniority_targets": ["Mid", "Senior", "Lead"],
+  "min_fit_to_include": 70,
+  "last_updated": "2026-01-18T10:00:00Z"
+}
+```
+**Note**: Used by Matcher Agent to configure job search parameters and fit scoring.
+
 ### `update_user_profile(user_id, fields)`
 **Purpose**: Update specific profile fields
 **Access**: Restricted (typically only via UI or onboarding flow)
@@ -103,27 +121,49 @@ Common tools accessible via MCP (Model Context Protocol) for all agents in the C
 
 **Operations**:
 
-### `create_application(user_id, job_id, match_data)`
-**Purpose**: Initialize application record when Matcher finds new high-quality match
+### `create_application(user_id, job_posted, match_data)`
+**Purpose**: Initialize application record when Matcher finds new match. Handles deduplication internally based on company + job_title + location_country + location_city.
+
 **Parameters**:
 ```json
 {
   "user_id": "uuid",
-  "job_id": "string",  // from Matcher's Google Sheet
-  "match_data": {
+  "job_posted": {
     "company": "Manor AG",
     "job_title": "Product Owner",
-    "location": "Basel, Switzerland",
+    "location_country": "CH",
+    "location_city": "Basel",
     "job_url": "https://...",
     "job_description": "Full job description text...",
+    "skills_keywords": "Product Management, Agile, Scrum, Jira, Stakeholder Management",
+    "salary_text": "CHF 100k-120k",
+    "posted_date": "2026-01-15",
+    "source": "LinkedIn",
+    "work_mode": "Hybrid",
+    "seniority": "Mid",
+    "employment_type": "Permanent",
+    "function": "Product"
+  },
+  "match_data": {
     "match_score": 88,
     "match_summary": "Strong fit based on product management experience and Swiss market knowledge",
-    "skills_keywords": "Product Management, Agile, Scrum, Jira, Stakeholder Management",
-    "salary_text": "CHF 100k-120k"
+    "fit_band": "High",
+    "dealbreakers": null
   }
 }
 ```
-**Returns**: `application_id` (UUID)
+
+**Returns**:
+```json
+{
+  "application_id": "uuid-app-123",
+  "created": true
+}
+```
+- `created: true` - New application record created with status = "new_match"
+- `created: false` - Job already exists (deduplication), returning existing application_id (idempotent operation)
+
+**Deduplication Logic**: Internal comparison based on `company + job_title + location_country + location_city`. If match found, returns existing application_id with `created: false`.
 
 ### `get_application_data(application_id)`
 **Purpose**: Retrieve job and match data for a specific application
@@ -132,19 +172,60 @@ Common tools accessible via MCP (Model Context Protocol) for all agents in the C
 {
   "application_id": "uuid",
   "user_id": "uuid",
-  "job_id": "string",
   "company": "Manor AG",
   "job_title": "Product Owner",
-  "location": "Basel, Switzerland",
+  "location_country": "CH",
+  "location_city": "Basel",
   "job_url": "https://...",
   "job_description": "Full text...",
-  "match_score": 88,
-  "match_summary": "Strong fit based on...",
   "skills_keywords": "Product Management, Agile, Scrum, Jira",
   "salary_text": "CHF 100k-120k",
+  "posted_date": "2026-01-15",
+  "source": "LinkedIn",
+  "work_mode": "Hybrid",
+  "seniority": "Mid",
+  "employment_type": "Permanent",
+  "function": "Product",
+  "match_score": 88,
+  "match_summary": "Strong fit based on...",
+  "fit_band": "High",
+  "dealbreakers": null,
   "status": "new_match",
   "created_at": "2026-01-19T10:00:00Z"
 }
+```
+
+### `get_applications_by_status(user_id, status, limit)`
+**Purpose**: Retrieve applications by status for Orchestrator monitoring (e.g., find all "new_match" applications)
+**Parameters**:
+```json
+{
+  "user_id": "uuid",
+  "status": "new_match",
+  "limit": 50
+}
+```
+
+**Returns**: Array of application records (same structure as get_application_data)
+```json
+[
+  {
+    "application_id": "uuid-1",
+    "user_id": "uuid",
+    "company": "Manor AG",
+    "job_title": "Product Owner",
+    "location_country": "CH",
+    "location_city": "Basel",
+    "fit_band": "High",
+    "match_score": 88,
+    "status": "new_match",
+    "created_at": "2026-01-19T10:00:00Z"
+  },
+  {
+    "application_id": "uuid-2",
+    ...
+  }
+]
 ```
 
 ### `store_draft(application_id, draft_data)`
